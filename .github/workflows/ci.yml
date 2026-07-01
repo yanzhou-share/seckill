@@ -15,7 +15,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: seckill_test
+          MYSQL_DATABASE: seckill
         ports:
           - 3306:3306
         options: >-
@@ -42,9 +42,12 @@ jobs:
       - name: Build with Maven
         run: mvn clean compile -q
 
+      - name: Initialize database
+        run: mysql -h 127.0.0.1 -u root -proot seckill < sql/init.sql
+
       - name: Run tests
         env:
-          DB_URL: jdbc:mysql://localhost:3306/seckill_test?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+          DB_URL: jdbc:mysql://localhost:3306/seckill?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
           DB_USERNAME: root
           DB_PASSWORD: root
           REDIS_HOST: localhost
