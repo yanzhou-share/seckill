@@ -68,14 +68,14 @@ public class RedisTest {
 
         redisTemplate.opsForSet().remove(key, userId);
 
-        Boolean added = redisTemplate.opsForSet().add(key, userId);
-        assertTrue(added);
+        Long added = redisTemplate.opsForSet().add(key, userId);
+        assertEquals(1L, added);
 
         Boolean isMember = redisTemplate.opsForSet().isMember(key, userId);
         assertTrue(isMember);
 
-        Boolean addedAgain = redisTemplate.opsForSet().add(key, userId);
-        assertFalse(addedAgain);
+        Long addedAgain = redisTemplate.opsForSet().add(key, userId);
+        assertEquals(0L, addedAgain);
 
         Long size = redisTemplate.opsForSet().size(key);
         assertEquals(1, size);
@@ -88,13 +88,13 @@ public class RedisTest {
     void rateLimit() {
         String key = "test:rate:1";
         int maxCount = 5;
-        long window = 10;
+        int window = 10;
 
         redisTemplate.delete(key);
 
         for (int i = 0; i < maxCount; i++) {
             Long count = redisTemplate.opsForValue().increment(key);
-            redisTemplate.expire(key, window);
+            redisTemplate.expire(key, java.time.Duration.ofSeconds(window));
             assertTrue(count <= maxCount);
         }
 
