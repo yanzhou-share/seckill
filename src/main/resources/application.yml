@@ -1,0 +1,62 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/seckill?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: 30000
+
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    database: ${REDIS_DB:0}
+    lettuce:
+      pool:
+        max-active: ${REDIS_POOL_MAX_ACTIVE:16}
+        max-idle: ${REDIS_POOL_MAX_IDLE:8}
+        min-idle: ${REDIS_POOL_MIN_IDLE:2}
+
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    cache: ${THYMELEAF_CACHE:false}
+
+  jackson:
+    date-format: yyyy-MM-dd'T'HH:mm
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+  type-aliases-package: com.seckill.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+jwt:
+  secret: ${JWT_SECRET:seckill2024SecretKeyMustBeLongEnough}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+seckill:
+  rate-limit:
+    window: ${RATE_LIMIT_WINDOW:10}
+    max-count: ${RATE_LIMIT_MAX_COUNT:50}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.seckill: ${LOG_LEVEL:INFO}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

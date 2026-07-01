@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>秒杀活动</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .header { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 20px; text-align: center; }
+        .header h1 { font-size: 24px; }
+        .container { max-width: 1000px; margin: 20px auto; padding: 0 20px; }
+        .nav { background: white; border-radius: 8px; padding: 15px; margin-bottom: 20px; display: flex; gap: 10px; }
+        .nav a { text-decoration: none; color: #e74c3c; padding: 8px 16px; border-radius: 4px; transition: background 0.3s; }
+        .nav a:hover { background: #f0f0f0; }
+        .activity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .activity-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.3s; }
+        .activity-card:hover { transform: translateY(-4px); }
+        .activity-img { width: 100%; height: 200px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; color: #999; }
+        .activity-info { padding: 20px; }
+        .activity-info h3 { margin-bottom: 10px; }
+        .activity-price { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+        .seckill-price { color: #e74c3c; font-size: 24px; font-weight: bold; }
+        .activity-stock { color: #666; margin-bottom: 10px; }
+        .activity-time { color: #999; font-size: 12px; margin-bottom: 15px; }
+        .btn-seckill { width: 100%; padding: 12px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; transition: opacity 0.3s; }
+        .btn-seckill:hover { opacity: 0.9; }
+        .btn-seckill:disabled { background: #ccc; cursor: not-allowed; }
+        .empty { text-align: center; padding: 40px; color: #999; grid-column: 1 / -1; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>限时秒杀</h1>
+    </div>
+    <div class="container">
+        <div class="nav">
+            <a href="/">首页</a>
+            <a href="/seckill">秒杀活动</a>
+            <a href="/order">我的订单</a>
+        </div>
+        <div id="activityList" class="activity-grid"></div>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/login';
+
+        async function loadActivities() {
+            const res = await fetch('/api/seckill/list', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            if (data.code === 200) {
+                renderActivities(data.data);
+            } else if (data.code === 401) {
+                window.location.href = '/login';
+            }
+        }
+
+        function renderActivities(activities) {
+            const container = document.getElementById('activityList');
+            if (activities.length === 0) {
+                container.innerHTML = '<div class="empty">暂无进行中的秒杀活动</div>';
+                return;
+            }
+            container.innerHTML = activities.map(a => `
+                <div class="activity-card">
+                    <div class="activity-img">商品图片</div>
+                    <div class="activity-info">
+                        <h3>秒杀活动 #${a.id}</h3>
+                        <div class="activity-price">
+                            <span class="seckill-price">¥${a.seckillPrice}</span>
+                        </div>
+                        <div class="activity-stock">剩余库存: ${a.stock}</div>
+                        <div class="activity-time">活动时间: ${formatTime(a.startTime)} - ${formatTime(a.endTime)}</div>
+                        <button class="btn-seckill" onclick="doSeckill(${a.id})" ${a.stock <= 0 ? 'disabled' : ''}>
+                            ${a.stock > 0 ? '立即秒杀' : '已售罄'}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function formatTime(time) {
+            if (!time) return '';
+            return new Date(time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+
+        async function doSeckill(activityId) {
+            if (!confirm('确认参与秒杀？')) return;
+            try {
+                const res = await fetch('/api/seckill/do/' + activityId, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                alert(data.msg || data.message);
+                if (data.code === 200) {
+                    loadActivities();
+                }
+            } catch (e) {
+                alert('网络错误');
+            }
+        }
+
+        loadActivities();
+    </script>
+</body>
+</html>
