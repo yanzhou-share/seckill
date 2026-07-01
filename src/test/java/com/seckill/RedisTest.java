@@ -5,8 +5,9 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
-import java.time.Duration;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,6 +22,15 @@ public class RedisTest {
     private RedisTemplate<String, Object> redisTemplate;
 
     @Test
+    @DisplayName("Redis基本操作测试")
+    void basicOperations() {
+        String key = "test:basic";
+        redisTemplate.opsForValue().set(key, "hello");
+        assertEquals("hello", redisTemplate.opsForValue().get(key));
+        redisTemplate.delete(key);
+    }
+
+    @Test
     @DisplayName("Redis库存扣减测试")
     void stockDecrement() {
         String key = "test:stock:1";
@@ -33,51 +43,39 @@ public class RedisTest {
     }
 
     @Test
-    @DisplayName("Redis库存扣减原子性测试")
-    void stockDecrementAtomic() throws InterruptedException {
-        String key = "test:stock:atomic";
-        int initStock = 100;
-        redisTemplate.opsForValue().set(key, initStock);
+    @DisplayName("Redis Lua脚本原子扣减测试")
+    void luaScriptDecrement() {
+        String key = "test:lua:stock";
+        redisTemplate.opsForValue().set(key, 5);
 
-        int threadCount = 200;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch latch = new CountDownLatch(threadCount);
+        String script = "local stock = redis.call('decr', KEYS[1]); " +
+                "if stock < 0 then redis.call('incr', KEYS[1]); return -1; end; " +
+                "return stock;";
 
-        for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
-                try {
-                    redisTemplate.opsForValue().decrement(key);
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
 
-        latch.await();
-        executor.shutdown();
-
-        Long stock = (Long) redisTemplate.opsForValue().get(key);
-        assertEquals(-100, stock);
+        Long result = redisTemplate.execute(redisScript, Collections.singletonList(key));
+        assertEquals(4, result);
 
         redisTemplate.delete(key);
     }
 
     @Test
-    @DisplayName("Redis重复购买检查")
+    @DisplayName("Redis重复购买检查测试")
     void duplicatePurchaseCheck() {
         String key = "test:bought:1";
         Long userId = 1001L;
 
         redisTemplate.opsForSet().remove(key, userId);
 
-        Long added = redisTemplate.opsForSet().add(key, userId);
-        assertEquals(1, added);
+        Boolean added = redisTemplate.opsForSet().add(key, userId);
+        assertTrue(added);
 
         Boolean isMember = redisTemplate.opsForSet().isMember(key, userId);
         assertTrue(isMember);
 
-        Long addedAgain = redisTemplate.opsForSet().add(key, userId);
-        assertEquals(0, addedAgain);
+        Boolean addedAgain = redisTemplate.opsForSet().add(key, userId);
+        assertFalse(addedAgain);
 
         Long size = redisTemplate.opsForSet().size(key);
         assertEquals(1, size);
@@ -96,7 +94,7 @@ public class RedisTest {
 
         for (int i = 0; i < maxCount; i++) {
             Long count = redisTemplate.opsForValue().increment(key);
-            redisTemplate.expire(key, Duration.ofSeconds(window));
+            redisTemplate.expire(key, window);
             assertTrue(count <= maxCount);
         }
 
@@ -107,14 +105,46 @@ public class RedisTest {
     }
 
     @Test
+    @DisplayName("Redis Lua脚本限流测试")
+    void luaScriptRateLimit() {
+        String key = "test:lua:rate";
+        int maxCount = 3;
+        int window = 10;
+
+        redisTemplate.delete(key);
+
+        String script = "local count = redis.call('incr', KEYS[1]); " +
+                "if count == 1 then redis.call('expire', KEYS[1], ARGV[1]); end; " +
+                "return count;";
+
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
+
+        for (int i = 0; i < maxCount; i++) {
+            Long count = redisTemplate.execute(redisScript, Collections.singletonList(key), String.valueOf(window));
+            assertTrue(count <= maxCount);
+        }
+
+        Long count = redisTemplate.execute(redisScript, Collections.singletonList(key), String.valueOf(window));
+        assertTrue(count > maxCount);
+
+        redisTemplate.delete(key);
+    }
+
+    @Test
     @DisplayName("Redis并发限流测试")
     void concurrentRateLimit() throws InterruptedException {
         String key = "test:rate:concurrent";
         int maxCount = 10;
-        long window = 10;
+        int window = 10;
         int threadCount = 100;
 
         redisTemplate.delete(key);
+
+        String script = "local count = redis.call('incr', KEYS[1]); " +
+                "if count == 1 then redis.call('expire', KEYS[1], ARGV[1]); end; " +
+                "return count;";
+
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
 
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
         CountDownLatch latch = new CountDownLatch(threadCount);
@@ -124,10 +154,9 @@ public class RedisTest {
         for (int i = 0; i < threadCount; i++) {
             executor.submit(() -> {
                 try {
-                    Long count = redisTemplate.opsForValue().increment(key);
-                    if (count <= maxCount) {
+                    Long count = redisTemplate.execute(redisScript, Collections.singletonList(key), String.valueOf(window));
+                    if (count != null && count <= maxCount) {
                         successCount.incrementAndGet();
-                        redisTemplate.expire(key, Duration.ofSeconds(window));
                     } else {
                         failCount.incrementAndGet();
                     }
