@@ -8,6 +8,7 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -28,11 +29,17 @@ public class SeckillControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
     private static String userToken;
     private static Long activityId;
 
     @BeforeAll
-    static void setup(@Autowired MockMvc mockMvc, @Autowired ObjectMapper objectMapper) throws Exception {
+    static void setup(@Autowired MockMvc mockMvc, @Autowired ObjectMapper objectMapper,
+                      @Autowired RedisTemplate<String, Object> redisTemplate) {
+        redisTemplate.getConnectionFactory().getConnection().serverCommands().flushAll();
+
         RegisterRequest req = new RegisterRequest();
         req.setUsername("seckill_test_user");
         req.setPassword("123456");
@@ -44,15 +51,19 @@ public class SeckillControllerTest {
         loginReq.setUsername("seckill_test_user");
         loginReq.setPassword("123456");
 
-        MvcResult result = mockMvc.perform(post("/api/user/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(loginReq)))
-                .andReturn();
+        try {
+            MvcResult result = mockMvc.perform(post("/api/user/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(loginReq)))
+                    .andReturn();
 
-        String response = result.getResponse().getContentAsString();
-        java.util.Map<String, Object> map = objectMapper.readValue(response, java.util.Map.class);
-        java.util.Map<String, Object> data = (java.util.Map<String, Object>) map.get("data");
-        userToken = (String) data.get("token");
+            String response = result.getResponse().getContentAsString();
+            java.util.Map<String, Object> map = objectMapper.readValue(response, java.util.Map.class);
+            java.util.Map<String, Object> data = (java.util.Map<String, Object>) map.get("data");
+            userToken = (String) data.get("token");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test

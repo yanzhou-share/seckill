@@ -11,9 +11,11 @@
 | MyBatis-Plus | 3.5.3.1 | ORM框架 |
 | MySQL | 8.0 | 数据库 |
 | Redis | 7.0 | 缓存/限流 |
+| Redisson | 3.23.0 | 分布式锁 |
 | JWT | 0.9.1 | 认证 |
 | Thymeleaf | - | 模板引擎 |
 | Docker | - | 容器化部署 |
+| Kubernetes | - | 容器编排 |
 
 ## 项目结构
 
@@ -22,30 +24,28 @@ seckill_test/
 ├── src/main/java/com/seckill/
 │   ├── SeckillApplication.java          # 启动类
 │   ├── config/                          # 配置类
-│   │   ├── RedisConfig.java
-│   │   └── WebMvcConfig.java
 │   ├── common/                          # 公共模块
-│   │   ├── Result.java                  # 统一返回结果
-│   │   ├── Constants.java               # 常量定义
-│   │   └── GlobalExceptionHandler.java  # 全局异常处理
 │   ├── entity/                          # 实体类
-│   │   ├── User.java
-│   │   ├── Product.java
-│   │   ├── SeckillActivity.java
-│   │   └── Order.java
 │   ├── mapper/                          # MyBatis Mapper
 │   ├── service/                         # 业务层
 │   ├── controller/                      # 控制层
 │   ├── interceptor/                     # 拦截器
-│   │   ├── JwtInterceptor.java
-│   │   └── RateLimitInterceptor.java
-│   └── util/
-│       └── JwtUtil.java
+│   └── util/                            # 工具类
 ├── src/main/resources/
 │   ├── application.yml
 │   └── templates/                       # 页面模板
 ├── src/test/java/com/seckill/           # 测试类
 ├── sql/init.sql                         # 建表脚本
+├── k8s/                                 # K8S部署配置
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── ingress.yaml
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   ├── mysql.yaml
+│   ├── redis.yaml
+│   ├── hpa.yaml                         # 自动扩缩容
+│   └── kustomization.yaml
 ├── Dockerfile
 ├── docker-compose.yml
 └── pom.xml
@@ -53,15 +53,7 @@ seckill_test/
 
 ## 快速开始
 
-### 方式一：Docker部署（推荐）
-
-```bash
-docker-compose up -d
-```
-
-访问 http://localhost:8080
-
-### 方式二：本地部署
+### 方式一：本地部署
 
 **环境要求**
 - JDK 17+
@@ -77,12 +69,47 @@ mysql -u root -p -e "CREATE DATABASE seckill;"
 # 2. 导入建表脚本
 mysql -u root -p seckill < sql/init.sql
 
-# 3. 修改配置（如需要）
-vim src/main/resources/application.yml
-
-# 4. 启动应用
+# 3. 启动应用
 mvn spring-boot:run
 ```
+
+### 方式二：Docker部署
+
+```bash
+docker-compose up -d
+```
+
+### 方式三：K8S部署
+
+```bash
+# 1. 构建镜像
+docker build -t seckill:latest .
+
+# 2. 部署
+cd k8s
+kubectl apply -k . -n seckill
+
+# 3. 访问
+kubectl port-forward -n seckill service/seckill-service 8080:80
+```
+
+## 环境变量
+
+所有配置支持环境变量覆盖：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| SERVER_PORT | 服务端口 | 8080 |
+| DB_URL | 数据库URL | jdbc:mysql://localhost:3306/seckill |
+| DB_USERNAME | 数据库用户名 | root |
+| DB_PASSWORD | 数据库密码 | (空) |
+| REDIS_HOST | Redis主机 | localhost |
+| REDIS_PORT | Redis端口 | 6379 |
+| JWT_SECRET | JWT密钥 | - |
+| JWT_EXPIRATION | JWT过期时间(ms) | 86400000 |
+| RATE_LIMIT_WINDOW | 限流窗口(秒) | 10 |
+| RATE_LIMIT_MAX_COUNT | 限流次数 | 5 |
+| LOG_LEVEL | 日志级别 | INFO |
 
 ## 核心功能
 
@@ -102,12 +129,15 @@ mvn spring-boot:run
 
 ### 4. 秒杀下单
 - 防重复购买
-- Redis原子扣减库存
-- 订单自动创建
+- Redis Lua原子扣减库存
+- 异步队列创建订单
 
 ### 5. 接口限流
-- 滑动窗口限流
-- 同一用户10秒内限1次请求
+- Redis Lua脚本限流
+- 同一用户10秒内限5次请求
+
+### 6. 订单超时
+- 30分钟未支付自动取消
 
 ## 秒杀流程
 
@@ -120,11 +150,12 @@ mvn spring-boot:run
     ↓
 3. 活动状态校验 → 未开始/已结束返回错误
     ↓
-4. 重复购买检查 → 已购买返回错误
+4. Redis Lua原子操作
+   - 扣减库存
+   - 检查重复购买
+   - 标记已购买
     ↓
-5. Redis扣库存 → 库存不足返回错误
-    ↓
-6. 创建订单 → 返回秒杀成功
+5. 入队异步创建订单 → 返回秒杀成功
 ```
 
 ## API接口
@@ -163,6 +194,11 @@ mvn spring-boot:run
 | GET | /api/order/{orderNo} | 订单详情 |
 | PUT | /api/order/{id}/status | 更新状态 |
 
+### 健康检查
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /actuator/health | 健康检查 |
+
 ## Redis Key设计
 
 | Key | 说明 | 类型 |
@@ -170,43 +206,63 @@ mvn spring-boot:run
 | seckill:stock:{activityId} | 秒杀库存 | String |
 | seckill:bought:{activityId} | 已购买用户 | Set |
 | seckill:rate:{userId} | 请求限流计数 | String |
+| seckill:queue | 秒杀消息队列 | List |
+
+## K8S部署
+
+### 部署架构
+- 3个应用副本（支持HPA自动扩缩）
+- MySQL + 持久化存储
+- Redis
+- Ingress入口
+
+### HPA自动扩缩
+- CPU > 70% 扩容
+- 内存 > 80% 扩容
+- 最少2个Pod，最多10个Pod
+
+### 常用命令
+```bash
+# 查看状态
+kubectl get pods -n seckill
+
+# 查看HPA
+kubectl get hpa -n seckill
+
+# 查看日志
+kubectl logs -f -l app=seckill -n seckill
+
+# 扩缩容
+kubectl scale deployment seckill --replicas=5 -n seckill
+```
 
 ## 测试
 
 ```bash
+# 运行核心测试（推荐）
+mvn test -Dtest=SeckillServiceTest
+mvn test -Dtest=ConcurrencyTest
+
 # 运行所有测试
 mvn test
 
 # 运行指定测试
-mvn test -Dtest=SeckillServiceTest
-mvn test -Dtest=ConcurrencyTest
+mvn test -Dtest=RedisTest
+mvn test -Dtest=RedissonTest
 mvn test -Dtest=SeckillControllerTest
 ```
 
-## 配置说明
+### 测试用例说明
 
-```yaml
-server:
-  port: 8080
-
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/seckill
-    username: root
-    password: root
-  redis:
-    host: localhost
-    port: 6379
-
-jwt:
-  secret: your-secret-key
-  expiration: 86400000  # 24小时
-
-seckill:
-  rate-limit:
-    window: 10      # 限流窗口(秒)
-    max-count: 1    # 最大请求次数
-```
+| 测试类 | 说明 | 用例数 |
+|--------|------|--------|
+| SeckillServiceTest | 业务逻辑测试 | 11 |
+| ConcurrencyTest | 并发秒杀测试 | 2 |
+| RedisTest | Redis操作测试 | 7 |
+| RedissonTest | 分布式锁测试 | 5 |
+| SeckillControllerTest | 接口集成测试 | 11 |
+| UserControllerTest | 用户接口测试 | 9 |
+| ProductControllerTest | 商品接口测试 | 9 |
 
 ## 页面说明
 

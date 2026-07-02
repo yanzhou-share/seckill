@@ -1,6 +1,5 @@
 package com.seckill;
 
-import com.seckill.common.Constants;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,12 +15,19 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class RedisTest {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @BeforeEach
+    void setup() {
+        redisTemplate.getConnectionFactory().getConnection().serverCommands().flushAll();
+    }
+
     @Test
+    @Order(1)
     @DisplayName("Redis基本操作测试")
     void basicOperations() {
         String key = "test:basic";
@@ -31,6 +37,7 @@ public class RedisTest {
     }
 
     @Test
+    @Order(2)
     @DisplayName("Redis库存扣减测试")
     void stockDecrement() {
         String key = "test:stock:1";
@@ -43,6 +50,7 @@ public class RedisTest {
     }
 
     @Test
+    @Order(3)
     @DisplayName("Redis Lua脚本原子扣减测试")
     void luaScriptDecrement() {
         String key = "test:lua:stock";
@@ -61,12 +69,11 @@ public class RedisTest {
     }
 
     @Test
+    @Order(4)
     @DisplayName("Redis重复购买检查测试")
     void duplicatePurchaseCheck() {
         String key = "test:bought:1";
         Long userId = 1001L;
-
-        redisTemplate.opsForSet().remove(key, userId);
 
         Long added = redisTemplate.opsForSet().add(key, userId);
         assertEquals(1L, added);
@@ -84,13 +91,12 @@ public class RedisTest {
     }
 
     @Test
+    @Order(5)
     @DisplayName("Redis限流测试")
     void rateLimit() {
         String key = "test:rate:1";
         int maxCount = 5;
         int window = 10;
-
-        redisTemplate.delete(key);
 
         for (int i = 0; i < maxCount; i++) {
             Long count = redisTemplate.opsForValue().increment(key);
@@ -105,13 +111,12 @@ public class RedisTest {
     }
 
     @Test
+    @Order(6)
     @DisplayName("Redis Lua脚本限流测试")
     void luaScriptRateLimit() {
         String key = "test:lua:rate";
         int maxCount = 3;
         int window = 10;
-
-        redisTemplate.delete(key);
 
         String script = "local count = redis.call('incr', KEYS[1]); " +
                 "if count == 1 then redis.call('expire', KEYS[1], ARGV[1]); end; " +
@@ -131,14 +136,13 @@ public class RedisTest {
     }
 
     @Test
+    @Order(7)
     @DisplayName("Redis并发限流测试")
     void concurrentRateLimit() throws InterruptedException {
         String key = "test:rate:concurrent";
         int maxCount = 10;
         int window = 10;
         int threadCount = 100;
-
-        redisTemplate.delete(key);
 
         String script = "local count = redis.call('incr', KEYS[1]); " +
                 "if count == 1 then redis.call('expire', KEYS[1], ARGV[1]); end; " +

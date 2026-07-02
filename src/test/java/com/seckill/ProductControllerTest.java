@@ -8,6 +8,7 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -28,11 +29,20 @@ public class ProductControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
     private static String userToken;
     private static Long productId;
 
     @BeforeAll
-    static void setup(@Autowired MockMvc mockMvc, @Autowired ObjectMapper objectMapper) throws Exception {
+    static void setup(@Autowired MockMvc mockMvc, @Autowired ObjectMapper objectMapper,
+                      @Autowired RedisTemplate<String, Object> redisTemplate) throws Exception {
+        redisTemplate.getConnectionFactory().getConnection().serverCommands().flushAll();
+
         RegisterRequest req = new RegisterRequest();
         req.setUsername("product_test_user");
         req.setPassword("123456");
