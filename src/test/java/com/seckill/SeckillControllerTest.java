@@ -37,7 +37,7 @@ public class SeckillControllerTest {
 
     @BeforeAll
     static void setup(@Autowired MockMvc mockMvc, @Autowired ObjectMapper objectMapper,
-                      @Autowired RedisTemplate<String, Object> redisTemplate) {
+                      @Autowired RedisTemplate<String, Object> redisTemplate) throws Exception {
         redisTemplate.getConnectionFactory().getConnection().serverCommands().flushAll();
 
         RegisterRequest req = new RegisterRequest();
