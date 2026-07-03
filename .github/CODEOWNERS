@@ -1,0 +1,13 @@
+# 秒杀系统代码所有者
+
+# 默认所有代码
+* @shany
+
+# API相关
+/src/main/java/com/seckill/controller/ @shany
+
+# 业务逻辑
+/src/main/java/com/seckill/service/ @shany
+
+# 配置
+/src/main/resources/ @shany

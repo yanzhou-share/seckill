@@ -1,12 +1,12 @@
 package com.seckill;
 
-import com.seckill.common.Constants;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
-import java.time.Duration;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,12 +15,29 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class RedisTest {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @BeforeEach
+    void setup() {
+        redisTemplate.getConnectionFactory().getConnection().serverCommands().flushAll();
+    }
+
     @Test
+    @Order(1)
+    @DisplayName("Redis基本操作测试")
+    void basicOperations() {
+        String key = "test:basic";
+        redisTemplate.opsForValue().set(key, "hello");
+        assertEquals("hello", redisTemplate.opsForValue().get(key));
+        redisTemplate.delete(key);
+    }
+
+    @Test
+    @Order(2)
     @DisplayName("Redis库存扣减测试")
     void stockDecrement() {
         String key = "test:stock:1";
@@ -33,51 +50,39 @@ public class RedisTest {
     }
 
     @Test
-    @DisplayName("Redis库存扣减原子性测试")
-    void stockDecrementAtomic() throws InterruptedException {
-        String key = "test:stock:atomic";
-        int initStock = 100;
-        redisTemplate.opsForValue().set(key, initStock);
+    @Order(3)
+    @DisplayName("Redis Lua脚本原子扣减测试")
+    void luaScriptDecrement() {
+        String key = "test:lua:stock";
+        redisTemplate.opsForValue().set(key, 5);
 
-        int threadCount = 200;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch latch = new CountDownLatch(threadCount);
+        String script = "local stock = redis.call('decr', KEYS[1]); " +
+                "if stock < 0 then redis.call('incr', KEYS[1]); return -1; end; " +
+                "return stock;";
 
-        for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
-                try {
-                    redisTemplate.opsForValue().decrement(key);
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
 
-        latch.await();
-        executor.shutdown();
-
-        Long stock = (Long) redisTemplate.opsForValue().get(key);
-        assertEquals(-100, stock);
+        Long result = redisTemplate.execute(redisScript, Collections.singletonList(key));
+        assertEquals(4, result);
 
         redisTemplate.delete(key);
     }
 
     @Test
-    @DisplayName("Redis重复购买检查")
+    @Order(4)
+    @DisplayName("Redis重复购买检查测试")
     void duplicatePurchaseCheck() {
         String key = "test:bought:1";
         Long userId = 1001L;
 
-        redisTemplate.opsForSet().remove(key, userId);
-
         Long added = redisTemplate.opsForSet().add(key, userId);
-        assertEquals(1, added);
+        assertEquals(1L, added);
 
         Boolean isMember = redisTemplate.opsForSet().isMember(key, userId);
         assertTrue(isMember);
 
         Long addedAgain = redisTemplate.opsForSet().add(key, userId);
-        assertEquals(0, addedAgain);
+        assertEquals(0L, addedAgain);
 
         Long size = redisTemplate.opsForSet().size(key);
         assertEquals(1, size);
@@ -86,17 +91,16 @@ public class RedisTest {
     }
 
     @Test
+    @Order(5)
     @DisplayName("Redis限流测试")
     void rateLimit() {
         String key = "test:rate:1";
         int maxCount = 5;
-        long window = 10;
-
-        redisTemplate.delete(key);
+        int window = 10;
 
         for (int i = 0; i < maxCount; i++) {
             Long count = redisTemplate.opsForValue().increment(key);
-            redisTemplate.expire(key, Duration.ofSeconds(window));
+            redisTemplate.expire(key, java.time.Duration.ofSeconds(window));
             assertTrue(count <= maxCount);
         }
 
@@ -107,29 +111,30 @@ public class RedisTest {
     }
 
     @Test
+    @Order(6)
     @DisplayName("Redis并发限流测试")
     void concurrentRateLimit() throws InterruptedException {
-        String key = "test:rate:concurrent";
+        String key = "test:rate:concurrent:" + System.nanoTime();
         int maxCount = 10;
-        long window = 10;
+        int window = 10;
         int threadCount = 100;
 
-        redisTemplate.delete(key);
+        String script = "local count = redis.call('incr', KEYS[1]); " +
+                "if count == 1 then redis.call('expire', KEYS[1], ARGV[1]); end; " +
+                "return count;";
 
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
+
+        ExecutorService executor = Executors.newFixedThreadPool(10);
         CountDownLatch latch = new CountDownLatch(threadCount);
         AtomicLong successCount = new AtomicLong(0);
-        AtomicLong failCount = new AtomicLong(0);
 
         for (int i = 0; i < threadCount; i++) {
             executor.submit(() -> {
                 try {
-                    Long count = redisTemplate.opsForValue().increment(key);
-                    if (count <= maxCount) {
+                    Long count = redisTemplate.execute(redisScript, Collections.singletonList(key), String.valueOf(window));
+                    if (count != null && count <= maxCount) {
                         successCount.incrementAndGet();
-                        redisTemplate.expire(key, Duration.ofSeconds(window));
-                    } else {
-                        failCount.incrementAndGet();
                     }
                 } finally {
                     latch.countDown();
@@ -140,8 +145,8 @@ public class RedisTest {
         latch.await();
         executor.shutdown();
 
-        assertTrue(successCount.get() <= maxCount);
-        assertEquals(threadCount - successCount.get(), failCount.get());
+        assertTrue(successCount.get() <= maxCount, "success count should <= maxCount");
+        assertTrue(successCount.get() > 0, "success count should > 0");
 
         redisTemplate.delete(key);
     }

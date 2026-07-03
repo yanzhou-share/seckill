@@ -7,6 +7,7 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -25,7 +26,15 @@ public class UserControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
     private static String userToken;
+
+    @BeforeAll
+    static void setup(@Autowired RedisTemplate<String, Object> redisTemplate) {
+        redisTemplate.getConnectionFactory().getConnection().serverCommands().flushAll();
+    }
 
     @Test
     @Order(1)

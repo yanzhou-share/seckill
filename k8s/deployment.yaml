@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seckill
+  labels:
+    app: seckill
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: seckill
+  template:
+    metadata:
+      labels:
+        app: seckill
+    spec:
+      containers:
+      - name: seckill
+        image: seckill:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SERVER_PORT
+          value: "8080"
+        - name: DB_URL
+          valueFrom:
+            secretKeyRef:
+              name: seckill-secret
+              key: db-url
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: seckill-secret
+              key: db-username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: seckill-secret
+              key: db-password
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: seckill-config
+              key: redis-host
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: seckill-config
+              key: redis-port
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: seckill-secret
+              key: jwt-secret
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
