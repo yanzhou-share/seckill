@@ -43,7 +43,12 @@ jobs:
         run: mvn clean compile -q
 
       - name: Initialize database
-        run: mysql -h 127.0.0.1 -u root -proot seckill < sql/init.sql
+        run: |
+          mysql -h 127.0.0.1 -u root -proot -e "DROP DATABASE IF EXISTS seckill; CREATE DATABASE seckill;"
+          mysql -h 127.0.0.1 -u root -proot seckill < sql/init.sql
+
+      - name: Flush Redis
+        run: redis-cli -h 127.0.0.1 FLUSHALL
 
       - name: Run tests
         env:
