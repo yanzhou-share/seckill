@@ -27,10 +27,7 @@ public class RedissonTest {
     void setup() {
         redissonClient.getAtomicLong("test:atomic").delete();
         redissonClient.getSet("test:set").delete();
-        redissonClient.getLock("test:lock").delete();
-        redissonClient.getLock("test:concurrent:lock").delete();
         redissonClient.getAtomicLong("test:counter").delete();
-        redissonClient.getLock("test:timeout:lock").delete();
     }
 
     @Test

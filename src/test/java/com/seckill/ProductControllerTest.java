@@ -32,9 +32,6 @@ public class ProductControllerTest {
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
-
     private static String userToken;
     private static Long productId;
 
