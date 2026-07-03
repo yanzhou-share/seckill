@@ -102,15 +102,8 @@ public class SeckillQueueConsumer {
                 return;
             }
 
-            long delay = (long) Math.pow(2, retryCount) * 100;
-            Thread.sleep(delay);
-
             redisTemplate.opsForList().rightPush(Constants.SECKILL_QUEUE_KEY, msg);
             log.info("消息重新入队: userId={}, activityId={}, retryCount={}", msg.getUserId(), msg.getActivityId(), retryCount + 1);
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("线程被中断", e);
         }
     }
 
