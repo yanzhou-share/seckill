@@ -3,6 +3,7 @@ package com.seckill.interceptor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.seckill.common.Constants;
 import com.seckill.common.Result;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -14,6 +15,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.Collections;
 
+@Slf4j
 @Component
 public class RateLimitInterceptor implements HandlerInterceptor {
 
@@ -42,13 +44,18 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
         String key = Constants.SECKILL_RATE_KEY + userId;
 
-        DefaultRedisScript<Long> script = new DefaultRedisScript<>(LUA_SCRIPT, Long.class);
-        Long count = redisTemplate.execute(script, Collections.singletonList(key), String.valueOf(window));
+        try {
+            DefaultRedisScript<Long> script = new DefaultRedisScript<>(LUA_SCRIPT, Long.class);
+            Long count = redisTemplate.execute(script, Collections.singletonList(key), String.valueOf(window));
 
-        if (count != null && count > maxCount) {
-            writeError(response, 429, "请求过于频繁，请稍后再试");
-            return false;
+            if (count != null && count > maxCount) {
+                writeError(response, 429, "请求过于频繁，请稍后再试");
+                return false;
+            }
+        } catch (Exception e) {
+            log.warn("限流Lua脚本执行异常，跳过限流: key={}, error={}", key, e.getMessage());
         }
+
         return true;
     }
 
